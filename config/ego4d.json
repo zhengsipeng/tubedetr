@@ -1,0 +1,7 @@
+{
+    "combine_datasets": ["ego4d"],
+    "combine_datasets_val": ["ego4d"],
+    "ego4d_vid_path" : "tsg/ego4d/nlq_clip_videos",
+    "ego4d_ann_path" : "tsg/ego4d"
+  }
+  
