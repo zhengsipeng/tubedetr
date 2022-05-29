@@ -60,7 +60,7 @@ def train_one_epoch(
         targets = batch_dict["targets"]
 
         targets = targets_to(targets, device)
-
+        #import pdb;pdb.set_trace()
         # forward
         memory_cache = model(
             samples,
@@ -77,6 +77,7 @@ def train_one_epoch(
             encode_and_save=False,
             memory_cache=memory_cache,
         )
+        #import pdb;pdb.set_trace()
         # only keep box predictions in the annotated moment
         max_duration = max(durations)
         device = outputs["pred_boxes"].device
@@ -109,7 +110,7 @@ def train_one_epoch(
         loss_dict = {}
         if criterion is not None:
             loss_dict.update(criterion(outputs, targets, inter_idx, time_mask))
-
+        
         losses = sum(
             loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict
         )
@@ -132,13 +133,13 @@ def train_one_epoch(
             print("Loss is {}, stopping training".format(loss_value))
             print(loss_dict_reduced)
             sys.exit(1)
-
+        
         optimizer.zero_grad()
         losses.backward()
         if max_norm > 0:
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
         optimizer.step()
-
+        
         adjust_learning_rate(
             optimizer,
             epoch,
@@ -158,11 +159,13 @@ def train_one_epoch(
         metric_logger.update(lr=optimizer.param_groups[0]["lr"])
         metric_logger.update(lr_backbone=optimizer.param_groups[1]["lr"])
         metric_logger.update(lr_text_encoder=optimizer.param_groups[2]["lr"])
+        break
+        
     # gather the stats from all processes
     metric_logger.synchronize_between_processes()
     print("Averaged stats:", metric_logger)
     return {k: meter.global_avg for k, meter in metric_logger.meters.items()}
-
+    
 
 @torch.no_grad()
 def evaluate(
@@ -195,7 +198,7 @@ def evaluate(
         targets = batch_dict["targets"]
 
         targets = targets_to(targets, device)
-
+        
         # forward
         memory_cache = model(
             samples,
@@ -211,39 +214,13 @@ def evaluate(
             encode_and_save=False,
             memory_cache=memory_cache,
         )
-
+        
         # only keep box predictions in the annotated moment
         max_duration = max(durations)
         inter_idx = batch_dict["inter_idx"]
-        keep_list = []
-        import pdb;pdb.set_trace()
-        for i_dur, (duration, inter) in enumerate(zip(durations, inter_idx)):
-            if inter[0] >= 0:
-                keep_list.extend(
-                    [
-                        elt
-                        for elt in range(
-                            i_dur * max_duration + inter[0],
-                            (i_dur * max_duration) + inter[1] + 1,
-                        )
-                    ]
-                )
-        
-        keep = torch.tensor(keep_list).long().to(outputs["pred_boxes"].device)
-        if args.test:
-            pred_boxes_all = outputs["pred_boxes"]
-            targets_all = [x for x in targets]
-        outputs["pred_boxes"] = outputs["pred_boxes"][keep]
-        for i_aux in range(len(outputs["aux_outputs"])):
-            outputs["aux_outputs"][i_aux]["pred_boxes"] = outputs["aux_outputs"][i_aux][
-                "pred_boxes"
-            ][keep]
+
         b = len(durations)
-        targets = [x for x in targets if len(x["boxes"])]
-        assert len(targets) == len(outputs["pred_boxes"]), (
-            len(targets),
-            len(outputs["pred_boxes"]),
-        )
+  
         # mask with padded positions set to False for loss computation
         if args.sted:
             time_mask = torch.zeros(b, outputs["pred_sted"].shape[1]).bool().to(device)
@@ -251,7 +228,7 @@ def evaluate(
                 time_mask[i_dur, :duration] = True
         else:
             time_mask = None
-
+        
         # compute losses
         loss_dict = {}
         if criterion is not None:
@@ -273,20 +250,26 @@ def evaluate(
             **loss_dict_reduced_unscaled,
         )
 
-        # update evaluator
-        # if args.test:
-        # outputs["pred_boxes"] = pred_boxes_all
-        if args.test:
-            targets = targets_all
-            outputs["pred_boxes"] = pred_boxes_all
         orig_target_sizes = torch.stack([t["orig_size"] for t in targets], dim=0)
         results = postprocessors["bbox"](outputs, orig_target_sizes)
-
+        
+        ego4d_res = {} if "ego4d" in postprocessors.keys() else None
+        ego4d_video_res = {} if "ego4d" in postprocessors.keys() else None
         vidstg_res = {} if "vidstg" in postprocessors.keys() else None
         vidstg_video_res = {} if "vidstg" in postprocessors.keys() else None
         hcstvg_res = {} if "hcstvg" in postprocessors.keys() else None
         hcstvg_video_res = {} if "hcstvg" in postprocessors.keys() else None
-        if "vidstg" in postprocessors.keys():
+        if "ego4d" in postprocessors.keys():
+            video_ids = batch_dict["video_ids"]
+            frames_id = batch_dict["frames_id"]
+            if args.sted:
+                pred_steds = postprocessors["ego4d"](
+                    outputs, frames_id, video_ids=video_ids, time_mask=time_mask
+                )
+            image_ids = [t["image_id"] for t in targets]
+            label_steds = inter_idx
+            import pdb;pdb.set_trace()
+        elif "vidstg" in postprocessors.keys():
             video_ids = batch_dict["video_ids"]
             frames_id = batch_dict["frames_id"]
             if args.sted:

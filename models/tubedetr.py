@@ -74,6 +74,7 @@ class TubeDETR(nn.Module):
         self.transformer = transformer
         hidden_dim = transformer.d_model
         self.bbox_embed = MLP(hidden_dim, hidden_dim, 4, 3)
+        self.bbox_embed.requires_grad_ = False
         self.query_embed = nn.Embedding(num_queries, hidden_dim)
 
         self.input_proj = nn.Conv2d(backbone.num_channels, hidden_dim, kernel_size=1)
@@ -110,6 +111,7 @@ class TubeDETR(nn.Module):
            - "aux_outputs": Optional, only returned when auxilary losses are activated. It is a list of
                             dictionnaries containing the two above keys for each decoder layer.
         """
+
         if not isinstance(samples, NestedTensor):
             samples = NestedTensor.from_tensor_list(samples)
 
@@ -136,6 +138,7 @@ class TubeDETR(nn.Module):
             device = src.device
             tpad_mask_t = None
             fast_src = None
+            
             if not self.stride:
                 tpad_src = torch.zeros(b, t, f, h, w).to(device)
                 tpad_mask = torch.ones(b, t, h, w).bool().to(device)
@@ -197,12 +200,15 @@ class TubeDETR(nn.Module):
                 tpad_mask_t=tpad_mask_t,  # (n_frames)x(math.ceil(H/32))x(math.ceil(W/32))
                 fast_src=fast_src,  # (n_frames)xFx(math.ceil(H/32))x(math.ceil(W/32))
             )
-
+            #memory_cache['img_memory']
+            #'text_memory_resized', 'text_memory', 'text_attention_mask', 'tokenized', 
+            # 'img_memory', 'mask', 'pos_embed', 'query_embed', 'query_mask'
             return memory_cache
 
         else:
             assert memory_cache is not None
             # space-time decoder
+            
             hs = self.transformer(
                 img_memory=memory_cache[
                     "img_memory"
@@ -217,6 +223,7 @@ class TubeDETR(nn.Module):
                 text_memory=memory_cache["text_memory"],
                 text_mask=memory_cache["text_attention_mask"],
             )
+            
             if self.guided_attn:
                 hs, weights, cross_weights = hs
             out = {}
@@ -224,10 +231,11 @@ class TubeDETR(nn.Module):
             # outputs heads
             if self.sted:
                 outputs_sted = self.sted_embed(hs)
-
+            #import pdb;pdb.set_trace()
             hs = hs.flatten(1, 2)  # n_layersxbxtxf -> n_layersx(b*t)xf
 
             outputs_coord = self.bbox_embed(hs).sigmoid()
+            
             out.update({"pred_boxes": outputs_coord[-1]})
             if self.sted:
                 out.update({"pred_sted": outputs_sted[-1]})
@@ -325,6 +333,7 @@ class SetCriterion(nn.Module):
         loss_start = (
             pred_start_prob * ((pred_start_prob + eps) / start_distrib).log()
         )  # KL div loss
+        
         loss_start = loss_start * time_mask  # not count padded values in the loss
         
         end_distrib = (
@@ -346,7 +355,7 @@ class SetCriterion(nn.Module):
         
         loss_sted = loss_start + loss_end
         losses["loss_sted"] = loss_sted.mean()
-
+        
         return losses
 
     def loss_guided_attn(
@@ -368,7 +377,6 @@ class SetCriterion(nn.Module):
         loss = loss.sum(2) / nb_neg[:, None]  # sum on the column
         loss = loss.sum(1)  # mean on the line normalized by the number of negatives
         loss = loss.mean()  # mean on the batch
-        import pdb;pdb.set_trace()
         losses = {"loss_guided_attn": loss}
         return losses
 
@@ -429,7 +437,7 @@ class SetCriterion(nn.Module):
                     time_mask,
                 )
             )
-        import pdb;pdb.set_trace()
+        
         # In case of auxiliary losses, we repeat this process with the output of each intermediate layer.
         if "aux_outputs" in outputs:
             for i, aux_outputs in enumerate(outputs["aux_outputs"]):

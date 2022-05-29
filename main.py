@@ -368,14 +368,15 @@ def main(args):
     # Build the model
     model, criterion, weight_dict = build_model(args)
     model.to(device)
-
+    
     # Get a copy of the model for exponential moving averaged version of the model
     model_ema = deepcopy(model) if args.ema else None
     model_without_ddp = model
     if args.distributed:
         model = torch.nn.parallel.DistributedDataParallel(
-            model, device_ids=[args.gpu], find_unused_parameters=True
+            model, device_ids=[args.gpu], find_unused_parameters=True, broadcast_buffers=False
         )
+        
         model_without_ddp = model.module
     n_parameters = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print("number of params:", n_parameters)
@@ -644,6 +645,27 @@ def main(args):
     print("Start training")
     start_time = time.time()
     for epoch in range(args.start_epoch, args.epochs):
+        test_stats = {}
+        test_model = model_ema if model_ema is not None else model
+        for i, item in enumerate(val_tuples):
+            evaluator_list = build_evaluator_list(item.dataset_name)
+            item = item._replace(evaluator_list=evaluator_list)
+            postprocessors = build_postprocessors(args, item.dataset_name)
+            print(f"Evaluating {item.dataset_name}")
+            curr_test_stats = evaluate(
+                model=test_model,
+                criterion=criterion,
+                postprocessors=postprocessors,
+                weight_dict=weight_dict,
+                data_loader=item.dataloader,
+                evaluator_list=item.evaluator_list,
+                device=device,
+                args=args,
+            )
+            test_stats.update(
+                {item.dataset_name + "_" + k: v for k, v in curr_test_stats.items()}
+            )
+
         if args.epoch_chunks > 0:
             sampler_train = samplers_train[epoch % len(samplers_train)]
             data_loader_train = data_loaders_train[epoch % len(data_loaders_train)]

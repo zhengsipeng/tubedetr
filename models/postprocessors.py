@@ -116,7 +116,7 @@ class PostProcess(nn.Module):
 def build_postprocessors(args, dataset_name) -> Dict[str, nn.Module]:
     postprocessors: Dict[str, nn.Module] = {"bbox": PostProcess()}
     
-    if dataset_name in ["vidstg", "hcstvg"]:
+    if dataset_name in ["vidstg", "hcstvg", "ego4d"]:
         postprocessors[dataset_name] = PostProcessSTVG()
-
+  
     return postprocessors

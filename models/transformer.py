@@ -329,10 +329,8 @@ class Transformer(nn.Module):
             pos_embed = torch.cat(
                 [pos_embed, torch.zeros_like(text_memory_resized)], dim=0
             )
-
-            if (
-                self.fast_mode == "noslow"
-            ):  # no space-text attention for noslow baseline
+            
+            if self.fast_mode == "noslow":  # no space-text attention for noslow baseline
                 img_memory, weights = src, None
                 text_memory = torch.stack(
                     [
@@ -347,7 +345,7 @@ class Transformer(nn.Module):
                     src, src_key_padding_mask=mask, pos=pos_embed, mask=None
                 )
                 text_memory = img_memory[-len(text_memory_resized) :]
-
+                
             if self.fast:
                 if (
                     self.fast_mode == "transformer"
@@ -397,6 +395,7 @@ class Transformer(nn.Module):
                 pad_pos_embed = torch.zeros(n_tokens, b, t, f).to(device)
                 cur_clip = 0
                 n_clips = math.ceil(t / self.stride)
+                
                 for i_dur, dur in enumerate(durations):
                     for i_clip in range(n_clips):
                         clip_dur = min(self.stride, t - i_clip * self.stride)
@@ -415,9 +414,11 @@ class Transformer(nn.Module):
                             pos_embed[:, cur_clip].unsqueeze(1).repeat(1, clip_dur, 1)
                         )
                         cur_clip += 1
+                    
                 img_memory = pad_img_memory.view(
                     n_tokens, b * t, f
                 )  # n_tokensxbxtxf -> n_tokensx(b*t)xf
+                
                 mask = tpad_mask_t.view(
                     b * t, n_tokens
                 )  # bxtxn_tokens -> (b*t)xn_tokens
@@ -444,7 +445,7 @@ class Transformer(nn.Module):
                             img_memory[:n_visual_tokens] + img_memory2
                         )
                 text_memory = img_memory[-len(text_memory_resized) :]
-
+            
             memory_cache = {
                 "text_memory_resized": text_memory_resized,  # seq first
                 "text_memory": text_memory,  # seq first
@@ -469,7 +470,7 @@ class Transformer(nn.Module):
                     None,
                     None,
                 )
-
+            
             # time-space-text attention
             hs = self.decoder(
                 tgt,  # n_queriesx(b*t)xF
